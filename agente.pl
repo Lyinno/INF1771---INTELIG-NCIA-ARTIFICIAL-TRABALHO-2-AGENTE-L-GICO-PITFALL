@@ -1,166 +1,130 @@
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Geometria
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-dentro(X,Y) :- map_size(MX,MY), X >= 1, X =< MX, Y >= 1, Y =< MY.
-
-%vizinhas de (X,Y), sem diagonal
-vizinha(X,Y,VX,Y) :- VX is X + 1, dentro(VX,Y).
-vizinha(X,Y,VX,Y) :- VX is X - 1, dentro(VX,Y).
-vizinha(X,Y,X,VY) :- VY is Y + 1, dentro(X,VY).
-vizinha(X,Y,X,VY) :- VY is Y - 1, dentro(X,VY).
+vizinha(X,Y,VX,Y) :- VX is X + 1, map_size(MX,_), VX =< MX.
+vizinha(X,Y,VX,Y) :- VX is X - 1, VX >= 1.
+vizinha(X,Y,X,VY) :- VY is Y + 1, map_size(_,MY), VY =< MY.
+vizinha(X,Y,X,VY) :- VY is Y - 1, VY >= 1.
 
 direita(norte,leste).
 direita(leste,sul).
 direita(sul,oeste).
 direita(oeste,norte).
-esquerda(A,B) :- direita(B,A).
 
-%direcao de (X,Y) ate a vizinha (VX,VY)
-direcao(X,Y,X,VY,norte) :- VY =:= Y + 1.
-direcao(X,Y,X,VY,sul) :- VY =:= Y - 1.
-direcao(X,Y,VX,Y,leste) :- VX =:= X + 1.
-direcao(X,Y,VX,Y,oeste) :- VX =:= X - 1.
+dano_maximo(80).
+altura_contorno(2).
+vida_baixa :- energia(E), dano_maximo(D), E =< D.
 
-%giros necessarios para ficar de frente para a direcao D2
-giros(D,D,0) :- !.
-giros(D,D2,1) :- (direita(D,D2); esquerda(D,D2)),!.
-giros(_,_,2).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Conhecimento
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%casa onde o agente ja esteve ou esta agora
 pisada(X,Y) :- visitado(X,Y).
 pisada(X,Y) :- posicao(X,Y,_).
 
-perigo(L) :- member(P,L), memberchk(P,[brisa,passos,palmas]),!.
+tem_perigo(L) :- member(P,L), member(P,[brisa,passos,palmas]),!.
 
-%casa segura. a origem entra de graca porque o agente comeca nela
+%casa que o agente sabe que e segura
 livre(1,1).
-livre(X,Y) :- certeza(X,Y), memory(X,Y,L), \+perigo(L).
+livre(X,Y) :- certeza(X,Y), memory(X,Y,L), \+tem_perigo(L).
 
-%a origem so entra como destino, se entrar no meio do caminho o jogo acaba.
-%na volta pra casa da pra cruzar inimigo ja conhecido, se a energia aguentar
+%a origem so entra como destino, senao o jogo acaba no meio do caminho.
+%na volta pra casa da pra cruzar inimigo que ja conhecemos
 passavel(_,1,1) :- !, fail.
 passavel(_,X,Y) :- livre(X,Y).
-passavel(alvo_casa,X,Y) :- certeza(X,Y), memory(X,Y,[passos]), energia(E), E > 80.
-passavel(alvo_casa_forcado,X,Y) :- certeza(X,Y), memory(X,Y,[passos]).
+passavel(volta,X,Y) :- visitado(X,Y), certeza(X,Y), memory(X,Y,[passos]).
 
-poco_certo(X,Y) :- certeza(X,Y), memory(X,Y,L), member(brisa,L).
+%busca em largura. o caminho so passa por casas passaveis, so o destino pode ser outra
+bfs(Modo,Alvos,Caminho) :-
+	posicao(X,Y,_),
+	bfs(Modo,Alvos,[[(X,Y)]],[(X,Y)],Rev),
+	reverse(Rev,Caminho).
 
-%brisa em (X,Y) ja tem explicacao se tem poco certo do lado
-explicada(X,Y) :- vizinha(X,Y,PX,PY), poco_certo(PX,PY),!.
+bfs(_,Alvos,[[(X,Y)|R]|_],_,[(X,Y)|R]) :- member((X,Y),Alvos),!.
+bfs(Modo,Alvos,[[(X,Y)|R]|Fila],Vis,Caminho) :-
+	findall((VX,VY), (vizinha(X,Y,VX,VY), \+member((VX,VY),Vis), (passavel(Modo,VX,VY); member((VX,VY),Alvos))), Todos),
+	sort(Todos,Novos),
+	findall([N,(X,Y)|R], member(N,Novos), Caminhos),
+	append(Fila,Caminhos,Fila2),
+	append(Vis,Novos,Vis2),
+	bfs(Modo,Alvos,Fila2,Vis2,Caminho).
 
-%quantas vizinhas de (X,Y) ainda podem ser o poco
-suspeitas(X,Y,N) :- findall(1, (vizinha(X,Y,VX,VY), \+pisada(VX,VY), memory(VX,VY,L), member(brisa,L)), Lista), length(Lista,N).
+direcao(X,Y,VX,VY,D) :- DX is VX - X, DY is VY - Y, sentido(DX,DY,D).
+sentido(0,1,norte).
+sentido(0,-1,sul).
+sentido(1,0,leste).
+sentido(-1,0,oeste).
 
-%chance de poco em (X,Y). cada casa pisada vizinha sente brisa; se a brisa
-%ja tem explicacao a chance cai pro basico (8 pocos em 144 casas)
-risco_poco(X,Y,R) :-
-	findall(P, (vizinha(X,Y,BX,BY), pisada(BX,BY), \+explicada(BX,BY), suspeitas(BX,BY,K), P is 1 / K), Ps),
-	(   Ps = [] -> R = 0.06
-	;   prod_complemento(Ps,Prod), R is 1 - Prod
-	).
+gira(D,D,andar) :- !.
+gira(D,Alvo,virar_direita) :- direita(D,Alvo),!.
+gira(D,Alvo,virar_esquerda) :- direita(Alvo,D),!.
+gira(_,_,virar_direita).
 
-prod_complemento([],1).
-prod_complemento([P|T],R) :- prod_complemento(T,RT), R is (1 - P) * RT.
+%primeira acao do caminho ate o alvo mais perto
+vai_para(Modo,Alvos,Acao) :-
+	posicao(X,Y,D),
+	bfs(Modo,Alvos,[_,(VX,VY)|_]),
+	direcao(X,Y,VX,VY,Alvo),
+	gira(D,Alvo,Acao).
 
-risco_aceito(R) :- R =< 0.1.
+%varredura: linha 1 pra direita, linha 2 pra esquerda, linha 3 pra direita...
+ordem(X,Y,K) :- map_size(MX,_), (Y mod 2 =:= 1 -> XK = X ; XK is MX + 1 - X), K is Y * 100 + XK.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Objetivos
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-alvo_explorar(X,Y) :- livre(X,Y), \+visitado(X,Y), \+posicao(X,Y,_).
-
-%casa incerta que ainda pode ter perigo
-suspeita(X,Y) :- memory(X,Y,L), perigo(L), \+certeza(X,Y), \+pisada(X,Y).
-
-%casa segura colada numa suspeita. pisar nela ajuda a descobrir o que tem la
-alvo_contornar(X,Y) :- alvo_explorar(X,Y), vizinha(X,Y,SX,SY), suspeita(SX,SY).
-
-alvo_energia(X,Y) :- livre(X,Y), memory(X,Y,L), member(reflexo,L), \+posicao(X,Y,_).
-
-%casa incerta onde so pode ter inimigo
-alvo_inimigo(X,Y) :- memory(X,Y,L), L = [passos], \+certeza(X,Y), \+visitado(X,Y), \+posicao(X,Y,_).
-
-alvo_celula(AX,AY,X,Y) :- X =:= AX, Y =:= AY.
-
-alvo_casa(X,Y) :- X =:= 1, Y =:= 1, \+posicao(1,1,_).
-alvo_casa_forcado(X,Y) :- alvo_casa(X,Y).
-
-%varredura por linhas, de baixo pra cima. linha impar vai pra direita, par pra esquerda
-ordem_varredura(X,Y,K) :- map_size(MX,_), (Y mod 2 =:= 1 -> XK = X ; XK is MX + 1 - X), K is Y * 100 + XK.
-
-%primeira casa segura da varredura que da pra alcançar
-proximo_varredura(AX,AY) :-
-	findall(K-(X,Y), (alvo_explorar(X,Y), ordem_varredura(X,Y,K)), Lista),
+proxima(AX,AY) :-
+	findall(K-(X,Y), (livre(X,Y), \+pisada(X,Y), ordem(X,Y,K)), Lista),
 	sort(Lista,Ordenada),
 	member(_-(AX,AY),Ordenada),
-	bfs(alvo_celula(AX,AY),_),!.
+	bfs(seguro,[(AX,AY)],_),!.
 
-%casa com risco de poco aceitavel, a de menor risco primeiro
-aposta(AX,AY) :-
-	energia(E),
-	findall(R-(X,Y), candidata_poco(X,Y,E,R), Lista),
+%casa que o agente ainda nao sabe nada, nem como suspeita
+desconhecida(X,Y) :- map_size(MX,MY), between(1,MY,Y), between(1,MX,X), \+memory(X,Y,_), \+pisada(X,Y).
+
+%primeira casa desconhecida na ordem da varredura. fica na linha mais baixa que ainda nao acabou
+parada(PX,PY) :-
+	findall(K-(X,Y), (desconhecida(X,Y), ordem(X,Y,K)), Lista),
+	sort(Lista,[_-(PX,PY)|_]).
+
+%se a varredura ia subir de linha mas a atual ainda tem casa desconhecida, tenta contornar:
+%vai pra casa segura mais perto dela, sem se afastar mais que altura_contorno linhas
+contorno(Linha,AX,AY) :-
+	parada(PX,PY), PY < Linha,
+	altura_contorno(H), Teto is PY + H,
+	findall(D-(X,Y), (livre(X,Y), \+pisada(X,Y), Y =< Teto, D is abs(X - PX) + abs(Y - PY)), Lista),
 	sort(Lista,Ordenada),
-	member(R-(AX,AY),Ordenada),
-	risco_aceito(R),
-	bfs(alvo_celula(AX,AY),_),!.
+	member(_-(AX,AY),Ordenada),
+	bfs(seguro,[(AX,AY)],_),!.
 
-candidata_poco(X,Y,E,R) :-
-	memory(X,Y,L), member(brisa,L), \+member(palmas,L),
-	\+certeza(X,Y), \+pisada(X,Y),
-	(member(passos,L) -> E > 80 ; true),
-	risco_poco(X,Y,R).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Planejamento
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%busca em largura so por casas livres. o destino pode ser casa nao livre
-bfs(Alvo,Caminho) :- posicao(X,Y,_), bfs([[(X,Y)]],[(X,Y)],Alvo,Rev), reverse(Rev,Caminho).
-
-bfs([[(X,Y)|R]|_], _, Alvo, [(X,Y)|R]) :- call(Alvo,X,Y),!.
-bfs([[(X,Y)|R]|Fila], Vis, Alvo, Caminho) :-
-	findall((VX,VY), (vizinha(X,Y,VX,VY), \+member((VX,VY),Vis), once((passavel(Alvo,VX,VY); call(Alvo,VX,VY)))), Novos),
-	findall([N,(X,Y)|R], member(N,Novos), Ext),
-	append(Fila,Ext,Fila2),
-	append(Vis,Novos,Vis2),
-	bfs(Fila2,Vis2,Alvo,Caminho).
-
-passo(X,Y,D,VX,VY,andar) :- direcao(X,Y,VX,VY,D),!.
-passo(X,Y,D,VX,VY,virar_direita) :- direcao(X,Y,VX,VY,D2), direita(D,D2),!.
-passo(X,Y,D,VX,VY,virar_esquerda) :- direcao(X,Y,VX,VY,D2), esquerda(D,D2),!.
-passo(_,_,_,_,_,virar_direita).
-
-%primeira acao do caminho ate o alvo mais proximo
-vai_para(Alvo,Acao) :- posicao(X,Y,D), bfs(Alvo,[_,(VX,VY)|_]), passo(X,Y,D,VX,VY,Acao).
-
-%o dano do inimigo vale pra cada acao na casa dele, inclusive virar.
-%sai pelo lado que pede menos giro
+%o dano do inimigo vale pra cada acao na casa dele, ate virar. sai girando o minimo
 fugir(Acao) :-
 	posicao(X,Y,D), memory(X,Y,L), member(passos,L),
-	findall(C-A, (vizinha(X,Y,VX,VY), livre(VX,VY), direcao(X,Y,VX,VY,D2), giros(D,D2,C), passo(X,Y,D,VX,VY,A)), Opcoes),
-	Opcoes \== [],
-	keysort(Opcoes,[_-Acao|_]).
+	direita(D,Dir), direita(Esq,D), direita(Dir,Tras),
+	member(Alvo,[D,Dir,Esq,Tras]),
+	sentido(DX,DY,Alvo), VX is X + DX, VY is Y + DY, livre(VX,VY),
+	gira(D,Alvo,Acao),!.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Decisao
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+cura_conhecida(X,Y) :- livre(X,Y), memory(X,Y,L), member(reflexo,L), \+posicao(X,Y,_).
 
-%a ordem das regras e a prioridade. se nenhuma serve o agente para
+%chance de inimigo em (X,Y): 1 dividido pelas suspeitas em volta de cada vizinha
+%que ouviu passos. com mais de uma vizinha vale a pior
+chance(X,Y,C) :-
+	findall(P, (vizinha(X,Y,VX,VY), pisada(VX,VY),
+	            findall(1, (vizinha(VX,VY,SX,SY), \+pisada(SX,SY), memory(SX,SY,L), member(passos,L)), Suspeitas),
+	            length(Suspeitas,N), N > 0, P is 1 / N), Ps),
+	max_list(Ps,C).
+
+%curar so vale se ainda tem o que explorar ou se a volta pra casa nao e segura
+vale_curar :- (proxima(_,_) ; menor_risco(_,_)),!.
+vale_curar :- \+bfs(seguro,[(1,1)],_).
+
+candidata_risco(X,Y,C) :- memory(X,Y,[passos]), \+pisada(X,Y), (certeza(X,Y) -> C = 1 ; chance(X,Y,C)).
+
+menor_risco(AX,AY) :-
+	findall(C-(X,Y), candidata_risco(X,Y,C), Lista),
+	sort(Lista,Ordenada),
+	member(_-(AX,AY),Ordenada),
+	bfs(seguro,[(AX,AY)],_),!.
+
 executa_acao(_) :- fim_de_jogo(_),!,fail.
 executa_acao(pegar) :- posicao(X,Y,_), memory(X,Y,L), member(brilho,L),!.
-executa_acao(pegar) :- energia(E), E =< 50, posicao(X,Y,_), memory(X,Y,L), member(reflexo,L),!.
+executa_acao(pegar) :- vida_baixa, vale_curar, posicao(X,Y,_), memory(X,Y,L), member(reflexo,L),!.
 executa_acao(A) :- fugir(A),!.
-executa_acao(A) :- energia(E), E =< 50, vai_para(alvo_energia,A),!.
-executa_acao(A) :- vai_para(alvo_contornar,A),!.
-executa_acao(A) :- proximo_varredura(AX,AY), vai_para(alvo_celula(AX,AY),A),!.
-executa_acao(A) :- aposta(AX,AY), vai_para(alvo_celula(AX,AY),A),!.
-executa_acao(A) :- energia(E), E > 80, vai_para(alvo_inimigo,A),!.
-executa_acao(A) :- vai_para(alvo_casa,A),!.
-executa_acao(A) :- vai_para(alvo_casa_forcado,A),!.
+executa_acao(A) :- vida_baixa, vale_curar, findall((X,Y), cura_conhecida(X,Y), Curas), Curas \== [], vai_para(seguro,Curas,A),!.
+executa_acao(A) :- proxima(_,Linha), contorno(Linha,X,Y), vai_para(seguro,[(X,Y)],A),!.
+executa_acao(A) :- proxima(X,Y), vai_para(seguro,[(X,Y)],A),!.
+executa_acao(A) :- \+vida_baixa, menor_risco(X,Y), vai_para(seguro,[(X,Y)],A),!.
+executa_acao(A) :- vai_para(seguro,[(1,1)],A),!.
+executa_acao(A) :- vai_para(volta,[(1,1)],A),!.
