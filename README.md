@@ -1,10 +1,10 @@
 # GRUPO 1
-Jayme Augusto Avelino de Paiva - 2210289
-Arthur Hammond Aragão Poggy - 2310295
-Rafael Gama Vergilio - 2320469
+Jayme Augusto Avelino de Paiva - 2210289  
+Arthur Hammond Aragão Poggy - 2310295  
+Rafael Gama Vergilio - 2320469  
 
-Link do vídeo:
-https://youtu.be/AwENxsAP4dU
+Link do vídeo:  
+https://youtu.be/AwENxsAP4dU  
 
 # Estratégia usada
 
